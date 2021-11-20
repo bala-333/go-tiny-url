@@ -35,21 +35,20 @@ func contains(arr []string, str string) bool {
 }
 
 func UrlsDataSet(url string) string {
-	rand_letters := Rand_String(length, charset)
-	for {
-		if val, ok := DataSet[url]; ok {
-			return val
-		} else {
-			values := make([]string, 0, len(DataSet))
-			for _, v := range DataSet {
-				values = append(values, v)
-			}
-			val := contains(values, rand_letters)
-			if !val {
-				DataSet[url] = rand_letters
-				return rand_letters
-			}
 
+	if val, ok := DataSet[url]; ok {
+		return val
+	}
+	for {
+		rand_letters := Rand_String(length, charset)
+		values := make([]string, 0, len(DataSet))
+		for _, v := range DataSet {
+			values = append(values, v)
+		}
+		val := contains(values, rand_letters)
+		if !val {
+			DataSet[url] = root_url + rand_letters
+			return root_url + rand_letters
 		}
 
 	}
