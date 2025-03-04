@@ -1,0 +1,869 @@
+package main
+
+import (
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"log"
+)
+
+func main() {
+	fset := token.NewFileSet() // Track file positions
+	code := `
+package main
+
+func main() {
+	x := 42
+	_ = x // Example code
+}`
+	
+	// Parse code into AST
+	node, err := parser.ParseFile(fset, "example.go", code, parser.ParseComments)
+	if err != nil {
+		log.Fatal(err)
+	}
+	// Traverse and analyze the AST here
+}
+
+///
+ast.Inspect(node, func(n ast.Node) bool {
+	switch x := n.(type) {
+	case *ast.AssignStmt:
+		for _, lhs := range x.Lhs {
+			// Check if assignment uses blank identifier '_'
+			if ident, ok := lhs.(*ast.Ident); ok && ident.Name == "_" {
+				pos := fset.Position(ident.Pos())
+				log.Printf("Assignment to blank identifier at %s", pos)
+			}
+		}
+	}
+	return true // Continue traversal
+})
+
+//
+var currentLoop ast.Node // Track if inside a loop
+
+ast.Inspect(node, func(n ast.Node) bool {
+	switch x := n.(type) {
+	case *ast.ForStmt, *ast.RangeStmt:
+		// Entering a loop
+		currentLoop = n
+		defer func() { currentLoop = nil }() // Reset after traversal
+	case *ast.DeferStmt:
+		if currentLoop != nil {
+			pos := fset.Position(x.Defer)
+			log.Printf("Defer inside loop at %s", pos)
+		}
+	}
+	return true
+})
+
+///
+import (
+	"go/types"
+	"golang.org/x/tools/go/loader"
+)
+
+// Load and type-check a package
+func loadPackage() {
+	var conf loader.Config
+	conf.Import("example.com/your/package")
+	prog, err := conf.Load()
+	if err != nil {
+		log.Fatal(err)
+	}
+	pkg := prog.Package("example.com/your/package")
+	// Use pkg.Types to access type information
+}
+
+func checkUnusedVars(node *ast.File, fset *token.FileSet) {
+	used := make(map[*ast.Object]bool)
+	declared := make(map[*ast.Object]bool)
+
+	// Collect declared variables
+	ast.Inspect(node, func(n ast.Node) bool {
+		switch x := n.(type) {
+		case *ast.Ident:
+			if x.Obj != nil && x.Obj.Kind == ast.Var {
+				if x.Obj.Decl != nil {
+					declared[x.Obj] = true
+				}
+				used[x.Obj] = true // Mark as used
+			}
+		}
+		return true
+	})
+
+	// Report unused variables
+	for obj := range declared {
+		if !used[obj] {
+			pos := fset.Position(obj.Pos())
+			log.Printf("Unused variable '%s' at %s", obj.Name, pos)
+		}
+	}
+}	
+
+
+analyzer/
+├── core/             # Framework logic
+│   ├── rule_engine.go
+│   └── reporter.go
+├── languages/        # Language-specific plugins
+│   ├── go/
+│   ├── python/
+│   └── javascript/
+└── rules/            # Cross-language/custom rules
+
+
+
+type Rule interface {
+    Analyze(ast interface{}) []Issue
+    ID() string
+    Severity() string
+}
+func DetectHardcodedSecrets(code string) []Issue {
+    // Regex for AWS keys, passwords, etc.
+}
+
+
+analyzer/
+├── core/
+│   ├── analyzer.go      # Core analysis workflow
+│   └── types.go         # Shared interfaces/types
+├── languages/
+│   ├── go/
+│   │   ├── parser.go    # Go-specific parser
+│   │   └── rules.go     # Go-specific rules
+│   └── python/
+│       ├── parser.go    # Python-specific parser
+│       └── rules.go     # Python-specific rules
+└── main.go              # CLI entrypoint
+
+
+package core
+
+// Language defines a programming language plugin
+type Language interface {
+	Name() string
+	Parse(filePath string) (interface{}, error) // Returns language-specific AST
+	SupportedExtensions() []string
+}
+
+// Rule defines a static analysis rule
+type Rule interface {
+	ID() string
+	Analyze(ast interface{}, lang Language) []Issue
+	Severity() string // "error", "warning", "info"
+}
+
+// Issue represents a detected problem
+type Issue struct {
+	RuleID     string `json:"rule_id"`
+	Message    string `json:"message"`
+	Severity   string `json:"severity"`
+	Line       int    `json:"line"`
+	Column     int    `json:"column"`
+	FilePath   string `json:"file_path"`
+}
+
+
+package core
+
+import (
+	"path/filepath"
+)
+
+// Analyzer coordinates parsing and analysis
+type Analyzer struct {
+	languages map[string]Language
+	rules     []Rule
+}
+
+func NewAnalyzer() *Analyzer {
+	return &Analyzer{
+		languages: make(map[string]Language),
+		rules:     []Rule{},
+	}
+}
+
+func (a *Analyzer) RegisterLanguage(lang Language) {
+	for _, ext := range lang.SupportedExtensions() {
+		a.languages[ext] = lang
+	}
+}
+
+func (a *Analyzer) RegisterRule(rule Rule) {
+	a.rules = append(a.rules, rule)
+}
+
+func (a *Analyzer) ProcessFile(filePath string) ([]Issue, error) {
+	ext := filepath.Ext(filePath)
+	lang, exists := a.languages[ext]
+	if !exists {
+		return nil, nil // Skip unsupported files
+	}
+
+	ast, err := lang.Parse(filePath)
+	if err != nil {
+		return nil, err
+	}
+
+	var issues []Issue
+	for _, rule := range a.rules {
+		ruleIssues := rule.Analyze(ast, lang)
+		issues = append(issues, ruleIssues...)
+	}
+
+	return issues, nil
+}
+
+package go_lang
+
+import (
+	"go/ast"
+	"go/parser"
+	"go/token"
+)
+
+type GoLanguage struct{}
+
+func (g *GoLanguage) Name() string {
+	return "go"
+}
+
+func (g *GoLanguage) SupportedExtensions() []string {
+	return []string{".go"}
+}
+
+func (g *GoLanguage) Parse(filePath string) (interface{}, error) {
+	fset := token.NewFileSet()
+	node, err := parser.ParseFile(fset, filePath, nil, parser.AllErrors)
+	if err != nil {
+		return nil, err
+	}
+	return struct {
+		AST  *ast.File
+		Fset *token.FileSet
+	}{node, fset}, nil
+}
+
+package go_lang
+
+import (
+	"go/ast"
+	"strings"
+
+	"analyzer/core"
+)
+
+type TodoCommentRule struct{}
+
+func (r *TodoCommentRule) ID() string         { return "GO-001" }
+func (r *TodoCommentRule) Severity() string   { return "warning" }
+
+func (r *TodoCommentRule) Analyze(rawAST interface{}, lang core.Language) []core.Issue {
+	goAST := rawAST.(struct {
+		AST  *ast.File
+		Fset *token.FileSet
+	})
+
+	var issues []core.Issue
+	for _, comment := range goAST.AST.Comments {
+		if strings.Contains(comment.Text(), "TODO") {
+			pos := goAST.Fset.Position(comment.Pos())
+			issues = append(issues, core.Issue{
+				RuleID:   r.ID(),
+				Message:  "TODO comment found",
+				Severity: r.Severity(),
+				Line:     pos.Line,
+				Column:   pos.Column,
+				FilePath: pos.Filename,
+			})
+		}
+	}
+	return issues
+}
+
+package main
+
+import (
+	"encoding/json"
+	"fmt"
+	"log"
+	"os"
+
+	"analyzer/core"
+	go_lang "analyzer/languages/go"
+)
+
+func main() {
+	analyzer := core.NewAnalyzer()
+	
+	// Register languages
+	analyzer.RegisterLanguage(&go_lang.GoLanguage{})
+	// analyzer.RegisterLanguage(&python.PythonLanguage{})
+	
+	// Register rules
+	analyzer.RegisterRule(&go_lang.TodoCommentRule{})
+	// analyzer.RegisterRule(&go_lang.UnusedVariableRule{})
+
+	// Process files
+	file := "example.go"
+	issues, err := analyzer.ProcessFile(file)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// Print results as JSON
+	jsonOutput, _ := json.MarshalIndent(issues, "", "  ")
+	fmt.Println(string(jsonOutput))
+}
+
+type UnusedVariableRule struct{}
+
+func (r *UnusedVariableRule) ID() string       { return "GO-002" }
+func (r *UnusedVariableRule) Severity() string { return "warning" }
+
+func (r *UnusedVariableRule) Analyze(rawAST interface{}, _ core.Language) []core.Issue {
+    goAST := rawAST.(struct {
+        AST  *ast.File
+        Fset *token.FileSet
+    })
+    fset := goAST.Fset
+
+    // Track variable declarations and usages
+    declared := make(map[*ast.Object]bool)
+    used := make(map[*ast.Object]bool)
+
+    ast.Inspect(goAST.AST, func(n ast.Node) bool {
+        switch x := n.(type) {
+        case *ast.Ident:
+            if x.Obj != nil && x.Obj.Kind == ast.Var {
+                if x.Obj.Decl != nil {
+                    declared[x.Obj] = true // Declaration
+                }
+                used[x.Obj] = true // Usage
+            }
+        }
+        return true
+    })
+
+    var issues []core.Issue
+    for obj := range declared {
+        if !used[obj] {
+            pos := fset.Position(obj.Pos())
+            issues = append(issues, core.Issue{
+                RuleID:   r.ID(),
+                Message:  fmt.Sprintf("Unused variable '%s'", obj.Name),
+                Severity: r.Severity(),
+                Line:     pos.Line,
+                Column:   pos.Column,
+                FilePath: pos.Filename,
+            })
+        }
+    }
+    return issues
+}
+
+
+
+type UnhandledErrorRule struct{}
+
+func (r *UnhandledErrorRule) ID() string       { return "GO-003" }
+func (r *UnhandledErrorRule) Severity() string { return "error" }
+
+func (r *UnhandledErrorRule) Analyze(rawAST interface{}, _ core.Language) []core.Issue {
+    goAST := rawAST.(struct {
+        AST  *ast.File
+        Fset *token.FileSet
+    })
+    fset := goAST.Fset
+
+    var issues []core.Issue
+    ast.Inspect(goAST.AST, func(n ast.Node) bool {
+        callExpr, ok := n.(*ast.CallExpr)
+        if !ok {
+            return true
+        }
+
+        // Check if the function returns an error
+        funcIdent, ok := callExpr.Fun.(*ast.SelectorExpr)
+        if !ok {
+            return true
+        }
+
+        // Simplified: Assume functions ending with "Err" return errors
+        funcName := funcIdent.Sel.Name
+        if strings.HasSuffix(funcName, "Err") {
+            // Check if the return value is ignored
+            if parent, ok := callExpr.Parent().(*ast.ExprStmt); ok && parent != nil {
+                pos := fset.Position(callExpr.Pos())
+                issues = append(issues, core.Issue{
+                    RuleID:   r.ID(),
+                    Message:  fmt.Sprintf("Unhandled error from '%s'", funcName),
+                    Severity: r.Severity(),
+                    Line:     pos.Line,
+                    Column:   pos.Column,
+                    FilePath: pos.Filename,
+                })
+            }
+        }
+        return true
+    })
+    return issues
+}
+
+
+
+// Assuming Python AST is parsed using a library like "github.com/google/go-python/pythonparser"
+type EvalUsageRule struct{}
+
+func (r *EvalUsageRule) ID() string       { return "PY-001" }
+func (r *EvalUsageRule) Severity() string { return "error" }
+
+func (r *EvalUsageRule) Analyze(rawAST interface{}, _ core.Language) []core.Issue {
+    pyAST := rawAST.(*pythonparser.Module) // Example AST type
+    var issues []core.Issue
+
+    // Traverse AST to find eval() calls
+    pythonparser.Inspect(pyAST, func(n pythonparser.Node) bool {
+        call, ok := n.(*pythonparser.CallExpr)
+        if !ok {
+            return true
+        }
+
+        if ident, ok := call.Func.(*pythonparser.NameExpr); ok && ident.Id == "eval" {
+            pos := call.Pos()
+            issues = append(issues, core.Issue{
+                RuleID:   r.ID(),
+                Message:  "Use of unsafe eval()",
+                Severity: r.Severity(),
+                Line:     pos.Line,
+                Column:   pos.Column,
+                FilePath: pos.Filename,
+            })
+        }
+        return true
+    })
+    return issues
+}
+
+
+type MagicNumberRule struct{}
+
+func (r *MagicNumberRule) ID() string       { return "COMMON-001" }
+func (r *MagicNumberRule) Severity() string { return "info" }
+
+func (r *MagicNumberRule) Analyze(rawAST interface{}, lang core.Language) []core.Issue {
+    var issues []core.Issue
+
+    switch lang.Name() {
+    case "go":
+        goAST := rawAST.(struct {
+            AST  *ast.File
+            Fset *token.FileSet
+        })
+        ast.Inspect(goAST.AST, func(n ast.Node) bool {
+            if lit, ok := n.(*ast.BasicLit); ok && lit.Kind == token.INT {
+                pos := goAST.Fset.Position(lit.Pos())
+                issues = append(issues, core.Issue{
+                    RuleID:   r.ID(),
+                    Message:  "Magic number detected",
+                    Severity: r.Severity(),
+                    Line:     pos.Line,
+                    Column:   pos.Column,
+                    FilePath: pos.Filename,
+                })
+            }
+            return true
+        })
+    // Add cases for Python/other languages
+    }
+    return issues
+}
+
+type AssertUsageRule struct{}
+
+func (r *AssertUsageRule) ID() string       { return "PY-002" }
+func (r *AssertUsageRule) Severity() string { return "warning" }
+
+func (r *AssertUsageRule) Analyze(rawAST interface{}, _ core.Language) []core.Issue {
+    pyAST := rawAST.(*pythonparser.Module)
+    var issues []core.Issue
+
+    pythonparser.Inspect(pyAST, func(n pythonparser.Node) bool {
+        stmt, ok := n.(*pythonparser.AssertStmt)
+        if !ok {
+            return true
+        }
+        pos := stmt.Pos()
+        issues = append(issues, core.Issue{
+            RuleID:   r.ID(),
+            Message:  "Avoid assert in production code",
+            Severity: r.Severity(),
+            Line:     pos.Line,
+            Column:   pos.Column,
+            FilePath: pos.Filename,
+        })
+        return true
+    })
+    return issues
+}
+
+func main() {
+    analyzer := core.NewAnalyzer()
+    analyzer.RegisterLanguage(&go_lang.GoLanguage{})
+    analyzer.RegisterLanguage(&python.PythonLanguage{}) // Add Python plugin
+
+    analyzer.RegisterRule(&go_lang.TodoCommentRule{})
+    analyzer.RegisterRule(&go_lang.UnusedVariableRule{})
+    analyzer.RegisterRule(&go_lang.UnhandledErrorRule{})
+    analyzer.RegisterRule(&go_lang.DeferInLoopRule{})
+    analyzer.RegisterRule(&python.EvalUsageRule{})
+    analyzer.RegisterRule(&python.AssertUsageRule{})
+    analyzer.RegisterRule(&rules.MagicNumberRule{})
+
+    // Process files...
+}
+
+
+
+[
+  {
+    "rule_id": "GO-002",
+    "message": "Unused variable 'unusedVar'",
+    "severity": "warning",
+    "line": 10,
+    "column": 2,
+    "file_path": "example.go"
+  },
+  {
+    "rule_id": "PY-001",
+    "message": "Use of unsafe eval()",
+    "severity": "error",
+    "line": 5,
+    "column": 4,
+    "file_path": "example.py"
+  }
+]
+
+
+package java
+
+import (
+	"github.com/smacker/go-tree-sitter"
+	"github.com/smacker/go-tree-sitter/java"
+)
+
+type JavaLanguage struct{}
+
+func (j *JavaLanguage) Name() string           { return "java" }
+func (j *JavaLanguage) SupportedExtensions() []string { return []string{".java"} }
+
+func (j *JavaLanguage) Parse(filePath string) (interface{}, error) {
+	// Read file content
+	code, err := os.ReadFile(filePath)
+	if err != nil {
+		return nil, err
+	}
+
+	// Configure Tree-sitter
+	parser := sitter.NewParser()
+	parser.SetLanguage(java.GetLanguage())
+	tree, err := parser.ParseCtx(context.Background(), nil, code)
+	if err != nil {
+		return nil, err
+	}
+
+	return tree, nil
+}
+
+
+package java
+
+import (
+	"fmt"
+	"analyzer/core"
+	sitter "github.com/smacker/go-tree-sitter"
+)
+
+type SystemExitRule struct{}
+
+func (r *SystemExitRule) ID() string       { return "JAVA-001" }
+func (r *SystemExitRule) Severity() string { return "error" }
+
+func (r *SystemExitRule) Analyze(rawAST interface{}, _ core.Language) []core.Issue {
+	tree := rawAST.(*sitter.Tree)
+	root := tree.RootNode()
+
+	var issues []core.Issue
+	query := `(method_invocation
+                object: (identifier) @obj (#eq? @obj "System")
+                name: (identifier) @name (#eq? @name "exit")
+              )`
+
+	q, _ := sitter.NewQuery([]byte(query), java.GetLanguage())
+	defer q.Close()
+
+	cursor := sitter.NewQueryCursor()
+	defer cursor.Close()
+	cursor.Exec(q, root)
+
+	for {
+		match, ok := cursor.NextMatch()
+		if !ok {
+			break
+		}
+		for _, cap := range match.Captures {
+			pos := sitter.Point{
+				Row:    cap.Node.StartPoint().Row + 1, // 1-based line
+				Column: cap.Node.StartPoint().Column,
+			}
+			issues = append(issues, core.Issue{
+				RuleID:   r.ID(),
+				Message:  "Avoid System.exit() in application code",
+				Severity: r.Severity(),
+				Line:     int(pos.Row),
+				Column:   int(pos.Column),
+				FilePath: "", // Populate from context
+			})
+		}
+	}
+	return issues
+}
+
+
+
+type HashCodeEqualsRule struct{}
+
+func (r *HashCodeEqualsRule) ID() string       { return "JAVA-002" }
+func (r *HashCodeEqualsRule) Severity() string { return "warning" }
+
+func (r *HashCodeEqualsRule) Analyze(rawAST interface{}, _ core.Language) []core.Issue {
+	tree := rawAST.(*sitter.Tree)
+	root := tree.RootNode()
+
+	var issues []core.Issue
+	query := `(class_declaration
+                body: (class_body
+                  (method_declaration
+                    name: (identifier) @method_name (#eq? @method_name "equals")
+                  )
+                  (! (method_declaration
+                    name: (identifier) @method_name (#eq? @method_name "hashCode")
+                  ))
+              )`
+
+	q, _ := sitter.NewQuery([]byte(query), java.GetLanguage())
+	defer q.Close()
+
+	cursor := sitter.NewQueryCursor()
+	defer cursor.Close()
+	cursor.Exec(q, root)
+
+	for {
+		match, ok := cursor.NextMatch()
+		if !ok {
+			break
+		}
+		for _, cap := range match.Captures {
+			if cap.Node.Type() == "class_declaration" {
+				className := cap.Node.ChildByFieldName("name").Content()
+				pos := sitter.Point{
+					Row:    cap.Node.StartPoint().Row + 1,
+					Column: cap.Node.StartPoint().Column,
+				}
+				issues = append(issues, core.Issue{
+					RuleID:   r.ID(),
+					Message:  fmt.Sprintf("Class '%s' overrides equals() but not hashCode()", className),
+					Severity: r.Severity(),
+					Line:     int(pos.Row),
+					Column:   int(pos.Column),
+					FilePath: "",
+				})
+			}
+		}
+	}
+	return issues
+}
+
+
+type HashCodeEqualsRule struct{}
+
+func (r *HashCodeEqualsRule) ID() string       { return "JAVA-002" }
+func (r *HashCodeEqualsRule) Severity() string { return "warning" }
+
+func (r *HashCodeEqualsRule) Analyze(rawAST interface{}, _ core.Language) []core.Issue {
+	tree := rawAST.(*sitter.Tree)
+	root := tree.RootNode()
+
+	var issues []core.Issue
+	query := `(class_declaration
+                body: (class_body
+                  (method_declaration
+                    name: (identifier) @method_name (#eq? @method_name "equals")
+                  )
+                  (! (method_declaration
+                    name: (identifier) @method_name (#eq? @method_name "hashCode")
+                  ))
+              )`
+
+	q, _ := sitter.NewQuery([]byte(query), java.GetLanguage())
+	defer q.Close()
+
+	cursor := sitter.NewQueryCursor()
+	defer cursor.Close()
+	cursor.Exec(q, root)
+
+	for {
+		match, ok := cursor.NextMatch()
+		if !ok {
+			break
+		}
+		for _, cap := range match.Captures {
+			if cap.Node.Type() == "class_declaration" {
+				className := cap.Node.ChildByFieldName("name").Content()
+				pos := sitter.Point{
+					Row:    cap.Node.StartPoint().Row + 1,
+					Column: cap.Node.StartPoint().Column,
+				}
+				issues = append(issues, core.Issue{
+					RuleID:   r.ID(),
+					Message:  fmt.Sprintf("Class '%s' overrides equals() but not hashCode()", className),
+					Severity: r.Severity(),
+					Line:     int(pos.Row),
+					Column:   int(pos.Column),
+					FilePath: "",
+				})
+			}
+		}
+	}
+	return issues
+}
+
+func main() {
+	analyzer := core.NewAnalyzer()
+	
+	// Register languages
+	analyzer.RegisterLanguage(&go_lang.GoLanguage{})
+	analyzer.RegisterLanguage(&java.JavaLanguage{}) // Add Java
+
+	// Register rules
+	analyzer.RegisterRule(&java.SystemExitRule{})
+	analyzer.RegisterRule(&java.HashCodeEqualsRule{})
+	
+	// Process Java file
+	issues, err := analyzer.ProcessFile("Example.java")
+	// ...
+}
+
+// languages/java/rules.go
+type SQLInjectionRule struct{}
+
+func (r *SQLInjectionRule) ID() string       { return "SEC-001" }
+func (r *SQLInjectionRule) Severity() string { return "critical" }
+
+func (r *SQLInjectionRule) Analyze(rawAST interface{}, _ core.Language) []core.Issue {
+	tree := rawAST.(*sitter.Tree)
+	root := tree.RootNode()
+
+	query := `(method_invocation
+                object: (identifier) @obj (#match? @obj "(?i)statement")
+                name: (identifier) @method (#eq? @method "executeQuery")
+              )`
+
+	var issues []core.Issue
+	q, _ := sitter.NewQuery([]byte(query), java.GetLanguage())
+	cursor := sitter.NewQueryCursor()
+	cursor.Exec(q, root)
+
+	for {
+		match, ok := cursor.NextMatch()
+		if !ok { break }
+		for _, cap := range match.Captures {
+			pos := cap.Node.StartPoint()
+			issues = append(issues, core.Issue{
+				RuleID:   r.ID(),
+				Message:  "Unsafe SQL query construction with Statement",
+				Severity: r.Severity(),
+				Line:     int(pos.Row) + 1,
+				FilePath: "", // Populate from context
+			})
+		}
+	}
+	return issues
+}
+
+// languages/go/rules.go
+type GoSQLInjectionRule struct{}
+
+func (r *GoSQLInjectionRule) Analyze(rawAST interface{}, _ core.Language) []core.Issue {
+	goAST := rawAST.(struct { AST *ast.File; Fset *token.FileSet })
+	var issues []core.Issue
+
+	ast.Inspect(goAST.AST, func(n ast.Node) bool {
+		call, ok := n.(*ast.CallExpr)
+		if !ok { return true }
+
+		// Check for db.Query(fmt.Sprintf(...)) or db.Query("..." + var)
+		if isSQLQueryCall(call) && usesStringFormatting(call) {
+			pos := goAST.Fset.Position(call.Pos())
+			issues = append(issues, core.Issue{
+				RuleID:   "SEC-001",
+				Message:  "SQL query built with unsafe string formatting",
+				Severity: "critical",
+				Line:     pos.Line,
+			})
+		}
+		return true
+	})
+	return issues
+}
+
+func isSQLQueryCall(call *ast.CallExpr) bool {
+	if sel, ok := call.Fun.(*ast.SelectorExpr); ok {
+		return strings.HasSuffix(sel.Sel.Name, "Query") // db.Query, tx.Exec
+	}
+	return false
+}
+
+func usesStringFormatting(call *ast.CallExpr) bool {
+	// Detect fmt.Sprintf or concatenation in arguments
+	for _, arg := range call.Args {
+		if isSprintfCall(arg) || isConcatExpr(arg) {
+			return true
+		}
+	}
+	return false
+}
+
+
+// rules/secrets.go
+type HardcodedSecretRule struct{}
+
+func (r *HardcodedSecretRule) Analyze(rawAST interface{}, lang core.Language) []core.Issue {
+	// Read raw file content (not just AST)
+	fileContent := getFileContent(rawAST)
+	var issues []core.Issue
+
+	// Regex patterns for secrets
+	patterns := map[string]string{
+		"API_KEY": `(?i)api_?key\s*=\s*["'][a-f0-9]{20,}["']`,
+		"PASSWORD": `(?i)password\s*=\s*["'].+["']`,
+	}
+
+	for key, regex := range patterns {
+		re := regexp.MustCompile(regex)
+		matches := re.FindAllStringSubmatchIndex(fileContent, -1)
+		for _, m := range matches {
+			issues = append(issues, core.Issue{
+				RuleID:   "SEC-003",
+				Message:  fmt.Sprintf("Hardcoded %s detected", key),
+				Severity: "critical",
+				Line:     findLineNumber(fileContent, m[0]),
+			})
+		}
+	}
+	return issues
+}
+
