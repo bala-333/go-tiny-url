@@ -941,3 +941,62 @@ type PythonAST struct {
     FilePath string       // Source file path
     Errors   []error      // Parsing errors
 }
+
+
+package python
+
+// Simplified Python parser (real implementation would use a proper AST parser)
+type PythonAST struct {
+    Content string
+}
+
+type PythonLanguage struct{}
+
+func (p *PythonLanguage) Name() string { return "python" }
+func (p *PythonLanguage) SupportedExtensions() []string { return []string{".py"} }
+
+func (p *PythonLanguage) Parse(filePath string) (interface{}, error) {
+    content, err := os.ReadFile(filePath)
+    if err != nil {
+        return nil, err
+    }
+    return &PythonAST{Content: string(content)}, nil
+}
+
+func (p *PythonLanguage) GetRules() []core.Rule {
+    return []core.Rule{
+        &EvalUsageRule{},
+    }
+}
+
+package python
+
+import (
+    "analyzer/core"
+    "strings"
+)
+
+type EvalUsageRule struct{}
+
+func (r *EvalUsageRule) ID() string { return "PY-001" }
+func (r *EvalUsageRule) Severity() string { return "error" }
+
+func (r *EvalUsageRule) Analyze(rawAST interface{}) []core.Issue {
+    pyAST := rawAST.(*PythonAST)
+    var issues []core.Issue
+    
+    lines := strings.Split(pyAST.Content, "\n")
+    for i, line := range lines {
+        if strings.Contains(line, "eval(") {
+            issues = append(issues, core.Issue{
+                RuleID:   r.ID(),
+                Message:  "eval() usage detected",
+                Severity: r.Severity(),
+                Line:     i + 1,
+                Column:   0,
+                FilePath: "",
+            })
+        }
+    }
+    return issues
+}
