@@ -867,3 +867,77 @@ func (r *HardcodedSecretRule) Analyze(rawAST interface{}, lang core.Language) []
 	return issues
 }
 
+///
+package python
+
+import (
+    "analyzer/core"
+    "github.com/go-python/gpython/ast"
+)
+
+// Custom visitor to detect eval() calls
+type evalVisitor struct {
+    issues   []core.Issue
+    filePath string
+}
+
+// Implement ast.Visitor interface
+func (v *evalVisitor) Visit(node ast.AST) bool {
+    // Check if node is a function call
+    call, ok := node.(*ast.Call)
+    if !ok {
+        return true // Continue traversal
+    }
+
+    // Check for eval() in direct calls or attributes
+    switch fn := call.Func.(type) {
+    case *ast.Name:
+        if fn.Id == "eval" {
+            v.addIssue(fn.Pos())
+        }
+    case *ast.Attribute:
+        if fn.Attr == "eval" {
+            v.addIssue(fn.Pos())
+        }
+    }
+
+    return true // Continue traversal
+}
+
+// Helper to add issues
+func (v *evalVisitor) addIssue(pos ast.Pos) {
+    v.issues = append(v.issues, core.Issue{
+        RuleID:   "PY-001",
+        Message:  "eval() usage detected",
+        Severity: "critical",
+        Line:     pos.Line,
+        Column:   pos.Column + 1, // Columns are 1-based
+        FilePath: v.filePath,
+    })
+}
+
+type EvalRule struct{}
+
+func (r *EvalRule) ID() string       { return "PY-001" }
+func (r *EvalRule) Severity() string { return "critical" }
+
+func (r *EvalRule) Analyze(rawAST interface{}) []core.Issue {
+    pyAST := rawAST.(*PythonAST)
+    visitor := &evalVisitor{
+        filePath: pyAST.FilePath,
+    }
+    ast.Walk(pyAST.Module, visitor)
+    return visitor.issues
+}
+
+package python
+
+import (
+    "github.com/go-python/gpython/ast"
+)
+
+type PythonAST struct {
+    Module   *ast.Module  // AST root node
+    FilePath string       // Source file path
+    Errors   []error      // Parsing errors
+}
