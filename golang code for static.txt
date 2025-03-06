@@ -1000,3 +1000,80 @@ func (r *EvalUsageRule) Analyze(rawAST interface{}) []core.Issue {
     }
     return issues
 }
+
+Static Code Analysis Tool Compatibility
+Language	Tree-sitter (go-tree-sitter)	ANTLR4
+Go	✅ Excellent: Native support, fast parsing, and accurate syntax trees. Ideal for linting.	⚠️ Moderate: Requires community grammar and experimental Go runtime. Limited error recovery.
+JavaScript/TS	✅ Good: Real-time parsing, handles JSX/TSX. Best for IDE plugins or lightweight analysis.	✅ Strong: Mature grammar, supports semantic predicates. Better for deep control-flow analysis.
+Python	✅ Good: Fast for syntax checks, but limited semantic understanding (e.g., type inference).	✅ Strong: Full grammar control. Better for building custom analyzers (e.g., security linters).
+Java	✅ Basic: Syntax trees work for linting, but no built-in symbol resolution.	✅ Best: Reference implementation. Ideal for building Checkstyle-like tools or bytecode analyzers.
+C/C++	⚠️ Limited: Struggles with preprocessor macros and templates. Use for syntax-only checks.	✅ Strong: Mature grammars. Use Clang-based tools for deep analysis, but ANTLR works for custom rules.
+Rust	✅ Good: Official grammar. Macros partially parsed. Suitable for basic linting.	❌ Unstable: No official grammar. Avoid for Rust analysis.
+C#	⚠️ Basic: Community grammar. Limited semantic support.	✅ Strong: Robust C# runtime. Integrates with Roslyn for advanced analysis.
+Ruby	⚠️ Fragile: Ambiguous syntax (e.g., blocks) confuses parser. Use for simple rules.	❌ Unstable: No reliable grammar. Avoid for Ruby analysis.
+PHP	⚠️ Basic: Mixed HTML/PHP parsing issues. Use for syntax checks only.	⚠️ Experimental: Slow and error-prone. Prefer PHPStan/PHPCS for analysis.
+SQL	✅ Good: Official grammar. Use for syntax validation or basic injection detection.	✅ Strong: Dialect-specific grammars (e.g., PostgreSQL). Better for query optimization checks.
+Kotlin	⚠️ Experimental: Community grammar. Use ANTLR4 for JVM-based analysis instead.	✅ Moderate: Use Java runtime with Kotlin interop.
+Swift	⚠️ Experimental: Community grammar. Prefer Xcode’s built-in tools.	❌ Unstable: No official support.
+TypeScript	✅ Good: Similar to JS. Use for IDE plugins or AST-based pattern matching.	✅ Strong: Mature grammar. Better for type-system-aware analysis.
+Bash/Shell	⚠️ Basic: Struggles with expansions. Use for simple syntax checks.	⚠️ Experimental: Limited grammar. Prefer ShellCheck for analysis.
+Key Considerations for Static Analysis
+Feature	Tree-sitter (go-tree-sitter)	ANTLR4
+Speed	✅ Blazing-fast incremental parsing. Ideal for real-time linting.	⚠️ Slower, especially in interpreted targets (Python/JS).
+Syntax vs. Semantics	✅ Syntax-only analysis (e.g., linting, formatting).	✅ Full control over semantics (e.g., type checking, CFG generation).
+Error Recovery	⚠️ Basic heuristics. May miss nested errors.	✅ Advanced error recovery and reporting.
+Grammar Flexibility	❌ Limited to existing grammars. Hard to customize.	✅ Extendable grammars with semantic predicates.
+Integration with Go	✅ Native Go bindings. Easy to embed in Go tools.	⚠️ Possible via Go runtime (experimental) or C++ interop.
+Symbol Resolution	❌ Requires manual work (no built-in scope tracking).	✅ Possible with listener/visitor patterns and custom logic.
+Community Grammars	✅ Official grammars for 40+ languages (e.g., JS, Rust, HTML).	✅ 100+ community grammars, but quality varies.
+When to Choose Tree-sitter
+Lightweight Analysis: Syntax highlighting, formatting, or simple pattern matching (e.g., finding TODO comments).
+
+Real-Time Feedback: IDE plugins, editors, or CI tools needing fast parsing.
+
+Go-Centric Workflows: Easy integration with Go without CGO.
+
+When to Choose ANTLR4
+Deep Semantic Analysis: Type checking, control-flow graphs, or data-flow analysis.
+
+Custom Rules: Modify grammars to enforce project-specific patterns (e.g., security rules).
+
+Cross-Language Tools: Generate parsers in multiple targets (e.g., Java → Python).
+
+Recommended Pairings
+Tree-sitter + Semgrep: Use Tree-sitter for AST extraction and Semgrep for pattern matching.
+
+ANTLR4 + LLVM/Clang: For C/C++ analysis, combine ANTLR with Clang’s AST.
+
+ANTLR4 + LSP: Build a Language Server Protocol (LSP) tool with deep semantic features.
+
+Top Static Analysis Use Cases
+Tool	Best For	Example Projects
+Tree-sitter	- IDE plugins (e.g., VS Code extensions)
+- Linters (e.g., ESLint-like tools)
+- Code formatters	GitHub Copilot, Neovim, Tree-sitter-based linters.
+ANTLR4	- Custom security scanners
+- Compiler frontends
+- Legacy code migration tools	Checkstyle, PMD, SQL injection detectors, transpilers.
+Final Recommendation
+Use Tree-sitter if:
+
+You need speed and simplicity for syntax-driven tasks.
+
+Your language has an official, well-maintained grammar.
+
+Use ANTLR4 if:
+
+You need deep semantic analysis or custom grammar rules.
+
+You’re analyzing enterprise languages (Java, C#, SQL) or legacy systems.
+
+For hybrid approaches, combine both: use Tree-sitter for fast syntax parsing and ANTLR4 for semantic passes. For example, extract an AST with Tree-sitter and feed it into an ANTLR-based analyzer for deeper checks.
+
+For more details, see:
+
+Tree-sitter Grammars
+
+ANTLR4 Static Analysis Examples
+
+New chat
