@@ -1077,3 +1077,454 @@ Tree-sitter Grammars
 ANTLR4 Static Analysis Examples
 
 New chat
+
+
+package core
+
+import "github.com/smacker/go-tree-sitter"
+
+type (
+    // Parser interface for language-specific parsers
+    Parser interface {
+        Parse([]byte) *tree_sitter.Tree
+    }
+
+    // Rule interface for analysis rules
+    Rule interface {
+        Detect(*tree_sitter.Tree) []Issue
+    }
+
+    // Issue represents a detected problem
+    Issue struct {
+        Line    int
+        Column  int
+        Message string
+    }
+
+    // Analyzer coordinates the analysis workflow
+    Analyzer struct {
+        Parser Parser
+        Rules  []Rule
+    }
+)
+
+package core
+
+func NewAnalyzer(p Parser, rules []Rule) *Analyzer {
+    return &Analyzer{
+        Parser: p,
+        Rules:  rules,
+    }
+}
+
+func (a *Analyzer) Analyze(code []byte) []Issue {
+    tree := a.Parser.Parse(code)
+    var results []Issue
+    
+    for _, rule := range a.Rules {
+        results = append(results, rule.Detect(tree)...)
+    }
+    
+    return results
+}
+
+
+package python
+
+import (
+    "github.com/smacker/go-tree-sitter"
+    "github.com/smacker/go-tree-sitter/python"
+)
+
+type Parser struct {
+    parser *tree_sitter.Parser
+}
+
+func NewParser() *Parser {
+    p := tree_sitter.NewParser()
+    p.SetLanguage(python.GetLanguage())
+    return &Parser{parser: p}
+}
+
+func (p *Parser) Parse(code []byte) *tree_sitter.Tree {
+    return p.parser.Parse(nil, code)
+}
+
+
+package python
+
+import (
+    "github.com/smacker/go-tree-sitter"
+    "analyzer/core"
+)
+
+type EvalRule struct{}
+
+func (r EvalRule) Detect(tree *tree_sitter.Tree) []core.Issue {
+    query := `(
+        (call
+            function: [
+                (identifier) @func_id
+                (parenthesized_expression (identifier) @func_id)
+            ]
+            arguments: (argument_list)
+        ) @call
+        (#eq? @func_id "eval")
+    )`
+
+    q, _ := tree_sitter.NewQuery([]byte(query), python.GetLanguage())
+    defer q.Close()
+
+    qc := tree_sitter.NewQueryCursor()
+    defer qc.Close()
+    qc.Exec(q, tree.RootNode())
+
+    var issues []core.Issue
+    for {
+        match, ok := qc.NextMatch()
+        if !ok {
+            break
+        }
+
+        for _, capture := range match.Captures {
+            if q.CaptureNameForId(capture.Index) == "func_id" {
+                start := capture.Node.StartPoint()
+                issues = append(issues, core.Issue{
+                    Line:    int(start.Row) + 1,
+                    Column:  int(start.Column) + 1,
+                    Message: "Use of eval() is dangerous",
+                })
+            }
+        }
+    }
+    return issues
+}
+
+package golang
+
+import (
+    "github.com/smacker/go-tree-sitter"
+    "github.com/smacker/go-tree-sitter/golang"
+)
+
+type Parser struct {
+    parser *tree_sitter.Parser
+}
+
+func NewParser() *Parser {
+    p := tree_sitter.NewParser()
+    p.SetLanguage(golang.GetLanguage())
+    return &Parser{parser: p}
+}
+
+func (p *Parser) Parse(code []byte) *tree_sitter.Tree {
+    return p.parser.Parse(nil, code)
+}
+
+
+package golang
+
+import (
+    "github.com/smacker/go-tree-sitter"
+    "analyzer/core"
+)
+
+type UnsafeRule struct{}
+
+func (r UnsafeRule) Detect(tree *tree_sitter.Tree) []core.Issue {
+    query := `(
+        (import_spec path: (string_lit) @path
+        (#match? @path "\"unsafe\"")
+    ) @import`
+
+    q, _ := tree_sitter.NewQuery([]byte(query), golang.GetLanguage())
+    defer q.Close()
+
+    qc := tree_sitter.NewQueryCursor()
+    defer qc.Close()
+    qc.Exec(q, tree.RootNode())
+
+    var issues []core.Issue
+    for {
+        match, ok := qc.NextMatch()
+        if !ok {
+            break
+        }
+
+        for _, capture := range match.Captures {
+            if q.CaptureNameForId(capture.Index) == "import" {
+                start := capture.Node.StartPoint()
+                issues = append(issues, core.Issue{
+                    Line:    int(start.Row) + 1,
+                    Column:  int(start.Column) + 1,
+                    Message: "Use of unsafe package",
+                })
+            }
+        }
+    }
+    return issues
+}
+
+package main
+
+import (
+    "fmt"
+    "os"
+    "path/filepath"
+    "analyzer/core"
+    "analyzer/languages/golang"
+    "analyzer/languages/python"
+)
+
+func main() {
+    if len(os.Args) < 2 {
+        fmt.Println("Usage: analyzer <file>")
+        os.Exit(1)
+    }
+
+    filePath := os.Args[1]
+    code, err := os.ReadFile(filePath)
+    if err != nil {
+        panic(err)
+    }
+
+    analyzer := createAnalyzer(filePath)
+    issues := analyzer.Analyze(code)
+
+    for _, issue := range issues {
+        fmt.Printf("[%s:%d:%d] %s\n", filePath, issue.Line, issue.Column, issue.Message)
+    }
+}
+
+func createAnalyzer(filePath string) *core.Analyzer {
+    ext := filepath.Ext(filePath)
+    
+    switch ext {
+    case ".go":
+        return core.NewAnalyzer(
+            golang.NewParser(),
+            []core.Rule{golang.UnsafeRule{}},
+        )
+    case ".py":
+        return core.NewAnalyzer(
+            python.NewParser(),
+            []core.Rule{python.EvalRule{}},
+        )
+    default:
+        panic("Unsupported file type: " + ext)
+    }
+}
+
+
+for _, rule := range a.Rules {
+    issues := rule.Detect(tree)
+    for i := range issues {
+        issues[i].FilePath = filePath
+    }
+    results = append(results, issues...)
+}
+
+return results
+
+
+// analyzer/core/types.go
+package core
+
+import "github.com/smacker/go-tree-sitter"
+
+type (
+    Parser interface {
+        Parse([]byte) *tree_sitter.Tree
+    }
+
+    Rule interface {
+        Detect(*tree_sitter.Tree) []Issue
+    }
+
+    Issue struct {
+        RuleID   string
+        Message  string
+        Severity string
+        Line     int
+        Column   int
+        FilePath string
+    }
+
+    Analyzer struct {
+        Parser Parser
+        Rules  []Rule
+    }
+)
+
+// analyzer/core/analyzer.go
+package core
+
+func NewAnalyzer(p Parser, rules []Rule) *Analyzer {
+    return &Analyzer{
+        Parser: p,
+        Rules:  rules,
+    }
+}
+
+func (a *Analyzer) Analyze(code []byte, filePath string) []Issue {
+    tree := a.Parser.Parse(code)
+    var results []Issue
+    
+    for _, rule := range a.Rules {
+        detected := rule.Detect(tree)
+        // Add file path to issues
+        for i := range detected {
+            detected[i].FilePath = filePath
+        }
+        results = append(results, detected...)
+    }
+    
+    return results
+}
+
+
+// analyzer/languages/python/rules.go
+package python
+
+import (
+    "github.com/smacker/go-tree-sitter"
+    "analyzer/core"
+)
+
+type EvalRule struct{}
+
+func (r EvalRule) Detect(tree *tree_sitter.Tree) []core.Issue {
+    query := `(call function: (identifier) @func (#eq? @func "eval"))`
+    q, _ := tree_sitter.NewQuery([]byte(query), python.GetLanguage())
+    defer q.Close()
+
+    qc := tree_sitter.NewQueryCursor()
+    defer qc.Close()
+    qc.Exec(q, tree.RootNode())
+
+    var issues []core.Issue
+    for {
+        match, ok := qc.NextMatch()
+        if !ok {
+            break
+        }
+
+        for _, capture := range match.Captures {
+            if capture.Node.Type() == "identifier" {
+                start := capture.Node.StartPoint()
+                issues = append(issues, core.Issue{
+                    RuleID:   "PYTHON_EVAL",
+                    Message:  "Use of eval() function detected",
+                    Severity: "HIGH",
+                    Line:     int(start.Row) + 1,
+                    Column:  int(start.Column) + 1,
+                })
+            }
+        }
+    }
+    return issues
+}
+
+
+// analyzer/languages/go/rules.go
+package golang
+
+import (
+    "github.com/smacker/go-tree-sitter"
+    "analyzer/core"
+)
+
+type UnsafeImportRule struct{}
+
+func (r UnsafeImportRule) Detect(tree *tree_sitter.Tree) []core.Issue {
+    query := `(import_spec path: (string_lit) @path (#eq? @path "\"unsafe\""))`
+    q, _ := tree_sitter.NewQuery([]byte(query), golang.GetLanguage())
+    defer q.Close()
+
+    qc := tree_sitter.NewQueryCursor()
+    defer qc.Close()
+    qc.Exec(q, tree.RootNode())
+
+    var issues []core.Issue
+    for {
+        match, ok := qc.NextMatch()
+        if !ok {
+            break
+        }
+
+        for _, capture := range match.Captures {
+            if capture.Node.Type() == "import_spec" {
+                start := capture.Node.StartPoint()
+                issues = append(issues, core.Issue{
+                    RuleID:   "GO_UNSAFE",
+                    Message:  "Import of unsafe package detected",
+                    Severity: "MEDIUM",
+                    Line:     int(start.Row) + 1,
+                    Column:  int(start.Column) + 1,
+                })
+            }
+        }
+    }
+    return issues
+}
+
+
+// analyzer/main.go
+package main
+
+import (
+    "fmt"
+    "os"
+    "path/filepath"
+    "analyzer/core"
+    "analyzer/languages/golang"
+    "analyzer/languages/python"
+)
+
+func main() {
+    if len(os.Args) < 2 {
+        fmt.Println("Usage: analyzer <file>")
+        os.Exit(1)
+    }
+
+    filePath := os.Args[1]
+    code, err := os.ReadFile(filePath)
+    if err != nil {
+        panic(err)
+    }
+
+    analyzer := createAnalyzer(filePath)
+    issues := analyzer.Analyze(code, filePath)
+
+    for _, issue := range issues {
+        fmt.Printf("[%s] %s:%d:%d - %s (%s Severity)\n",
+            issue.RuleID,
+            issue.FilePath,
+            issue.Line,
+            issue.Column,
+            issue.Message,
+            issue.Severity,
+        )
+    }
+}
+
+func createAnalyzer(filePath string) *core.Analyzer {
+    ext := filepath.Ext(filePath)
+    
+    switch ext {
+    case ".go":
+        return core.NewAnalyzer(
+            golang.NewParser(),
+            []core.Rule{golang.UnsafeImportRule{}},
+        )
+    case ".py":
+        return core.NewAnalyzer(
+            python.NewParser(),
+            []core.Rule{python.EvalRule{}},
+        )
+    default:
+        panic("Unsupported file type: " + ext)
+    }
+}
+
+
