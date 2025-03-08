@@ -1574,3 +1574,88 @@ func (r *UnusedVariableRule) Analyze(rawAST interface{}, _ core.Language) []core
     return issues
 }
 
+
+type UnusedImportRule struct{}
+
+func (r *UnusedImportRule) ID() string       { return "GO-003" }
+func (r *UnusedImportRule) Severity() string { return "warning" }
+
+func (r *UnusedImportRule) Analyze(rawAST interface{}, _ core.Language) []core.Issue {
+    goAST := rawAST.(struct {
+        AST  *ast.File
+        Fset *token.FileSet
+    })
+    fset := goAST.Fset
+
+    type importInfo struct {
+        path  string
+        ident string
+        pos   token.Pos
+    }
+
+    var imports []importInfo
+
+    // Collect all non-underscore/non-dot imports
+    for _, decl := range goAST.AST.Decls {
+        genDecl, ok := decl.(*ast.GenDecl)
+        if !ok || genDecl.Tok != token.IMPORT {
+            continue
+        }
+
+        for _, spec := range genDecl.Specs {
+            importSpec := spec.(*ast.ImportSpec)
+            path := strings.Trim(importSpec.Path.Value, `"`)
+
+            // Skip underscore and dot imports
+            if importSpec.Name != nil {
+                if importSpec.Name.Name == "_" || importSpec.Name.Name == "." {
+                    continue
+                }
+            }
+
+            // Determine identifier to track
+            ident := ""
+            if importSpec.Name != nil {
+                ident = importSpec.Name.Name
+            } else {
+                parts := strings.Split(path, "/")
+                ident = parts[len(parts)-1]
+            }
+
+            imports = append(imports, importInfo{
+                path:  path,
+                ident: ident,
+                pos:   importSpec.Pos(),
+            })
+        }
+    }
+
+    // Track used package identifiers
+    used := make(map[string]bool)
+    ast.Inspect(goAST.AST, func(n ast.Node) bool {
+        if selector, ok := n.(*ast.SelectorExpr); ok {
+            if xIdent, ok := selector.X.(*ast.Ident); ok {
+                used[xIdent.Name] = true
+            }
+        }
+        return true
+    })
+
+    // Generate issues for unused imports
+    var issues []core.Issue
+    for _, imp := range imports {
+        if !used[imp.ident] {
+            pos := fset.Position(imp.pos)
+            issues = append(issues, core.Issue{
+                RuleID:   r.ID(),
+                Message:  fmt.Sprintf("Unused import '%s'", imp.path),
+                Severity: r.Severity(),
+                Line:     pos.Line,
+                Column:   pos.Column,
+                FilePath: pos.Filename,
+            })
+        }
+    }
+
+    return issues
+}
