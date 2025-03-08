@@ -1528,3 +1528,49 @@ func createAnalyzer(filePath string) *core.Analyzer {
 }
 
 
+type UnusedVariableRule struct{}
+
+func (r *UnusedVariableRule) ID() string       { return "GO-002" }
+func (r *UnusedVariableRule) Severity() string { return "warning" }
+
+func (r *UnusedVariableRule) Analyze(rawAST interface{}, _ core.Language) []core.Issue {
+    goAST := rawAST.(struct {
+        AST  *ast.File
+        Fset *token.FileSet
+    })
+    fset := goAST.Fset
+
+    // Track variable declarations and usages
+    declared := make(map[*ast.Object]bool)
+    used := make(map[*ast.Object]bool)
+
+    ast.Inspect(goAST.AST, func(n ast.Node) bool {
+        switch x := n.(type) {
+        case *ast.Ident:
+            if x.Obj != nil && x.Obj.Kind == ast.Var {
+                if x.Obj.Decl != nil {
+                    declared[x.Obj] = true // Declaration
+                }
+                used[x.Obj] = true // Usage
+            }
+        }
+        return true
+    })
+
+    var issues []core.Issue
+    for obj := range declared {
+        if !used[obj] {
+            pos := fset.Position(obj.Pos())
+            issues = append(issues, core.Issue{
+                RuleID:   r.ID(),
+                Message:  fmt.Sprintf("Unused variable '%s'", obj.Name),
+                Severity: r.Severity(),
+                Line:     pos.Line,
+                Column:   pos.Column,
+                FilePath: pos.Filename,
+            })
+        }
+    }
+    return issues
+}
+
