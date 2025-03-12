@@ -1737,3 +1737,182 @@ func (r *UnusedImportRule) Analyze(rawAST interface{}, lang core.Language) []cor
 
     return issues
 }
+
+
+package collector
+
+import (
+	"os"
+	"time"
+)
+
+// FileData represents collected file information
+type FileData struct {
+	Size         int64  `json:"size"`
+	Extension    string `json:"extension"`
+	LastModified string `json:"last_modified"`
+	// Add new fields here with appropriate json tags
+}
+
+// FileInfoCollector defines the interface for collecting file information
+type FileInfoCollector interface {
+	Collect(info os.FileInfo, path string) FileData
+}
+
+
+package collector
+
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+)
+
+func getSize(info os.FileInfo) int64 {
+	return info.Size()
+}
+
+func getExtension(info os.FileInfo) string {
+	name := info.Name()
+	ext := filepath.Ext(name)
+	
+	if strings.HasPrefix(name, ".") && !strings.Contains(name[1:], ".") {
+		return ""
+	}
+	return ext
+}
+
+func getLastModified(info os.FileInfo) string {
+	return info.ModTime().UTC().Format(time.RFC3339)
+}
+
+// Add new helper functions below
+
+
+
+package collector
+
+import "os"
+
+// DefaultCollector implements basic file information collection
+type DefaultCollector struct{}
+
+func NewDefaultCollector() *DefaultCollector {
+	return &DefaultCollector{}
+}
+
+func (c *DefaultCollector) Collect(info os.FileInfo, path string) FileData {
+	return FileData{
+		Size:         getSize(info),
+		Extension:    getExtension(info),
+		LastModified: getLastModified(info),
+	}
+}
+
+// Add new collector implementations below
+
+
+
+
+package walker
+
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	
+	"github.com/yourusername/repo-scanner/internal/collector"
+)
+
+type RepoWalker struct {
+	collector collector.FileInfoCollector
+}
+
+func NewWalker(c collector.FileInfoCollector) *RepoWalker {
+	return &RepoWalker{collector: c}
+}
+
+func (w *RepoWalker) BuildStructure(root string) (map[string]interface{}, error) {
+	result := make(map[string]interface{})
+
+	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+
+		if path == root {
+			return nil
+		}
+
+		relPath, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+
+		parts := strings.Split(relPath, string(filepath.Separator))
+		current := result
+
+		for i, part := range parts {
+			if i == len(parts)-1 {
+				if !info.IsDir() {
+					current[part] = w.collector.Collect(info, path)
+				}
+				break
+			}
+
+			if _, ok := current[part]; !ok {
+				current[part] = make(map[string]interface{})
+			}
+
+			var valid bool
+			current, valid = current[part].(map[string]interface{})
+			if !valid {
+				return fmt.Errorf("invalid structure at %s", part)
+			}
+		}
+
+		return nil
+	})
+
+	return result, err
+}
+
+
+
+package main
+
+import (
+	"encoding/json"
+	"fmt"
+	"os"
+	
+	"github.com/yourusername/repo-scanner/internal/collector"
+	"github.com/yourusername/repo-scanner/internal/walker"
+)
+
+func main() {
+	if len(os.Args) < 2 {
+		fmt.Println("Usage: repo-scanner <directory>")
+		os.Exit(1)
+	}
+
+	rootDir := os.Args[1]
+	col := collector.NewDefaultCollector()
+	repoWalker := walker.NewWalker(col)
+
+	structure, err := repoWalker.BuildStructure(rootDir)
+	if err != nil {
+		fmt.Printf("Error scanning repository: %v\n", err)
+		os.Exit(1)
+	}
+
+	jsonData, err := json.MarshalIndent(structure, "", "  ")
+	if err != nil {
+		fmt.Printf("Error generating JSON: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Println(string(jsonData))
+}
