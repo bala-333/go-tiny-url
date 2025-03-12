@@ -1659,3 +1659,81 @@ func (r *UnusedImportRule) Analyze(rawAST interface{}, _ core.Language) []core.I
 
     return issues
 }
+
+// Corrected Issue struct with proper field names and syntax
+type Issue struct {
+    RuleID  string
+    Message string
+    Severity string
+    Line    int
+    Column  int
+}
+
+// Updated Analyze function with position tracking
+func (r *UnusedImportRule) Analyze(rawAST interface{}, lang core.Language) []core.Issue {
+    goAST, ok := rawAST.(*GoAST) // Assume GoAST contains *ast.File and *token.FileSet
+    if !ok {
+        return []core.Issue{{
+            RuleID:   "INTERNAL-ERROR",
+            Message:  "Failed to parse Go AST",
+            Severity: "error",
+            Line:     0,
+            Column:   0,
+        }}
+    }
+
+    type importInfo struct {
+        used bool
+        pos  token.Pos
+    }
+    importedPackages := make(map[string]importInfo)
+
+    // Collect imports with positions
+    for _, imp := range goAST.AST.Imports {
+        if imp.Name != nil && (imp.Name.Name == "_" || imp.Name.Name == ".") {
+            continue
+        }
+
+        pkgName := ""
+        if imp.Name != nil {
+            pkgName = imp.Name.Name
+        } else {
+            path := strings.Trim(imp.Path.Value, "\"")
+            pkgName = filepath.Base(path)
+        }
+
+        importedPackages[pkgName] = importInfo{
+            pos: imp.Pos(),
+        }
+    }
+
+    // Detect package usage
+    ast.Inspect(goAST.AST, func(node ast.Node) bool {
+        if selector, ok := node.(*ast.SelectorExpr); ok {
+            if pkgIdent, ok := selector.X.(*ast.Ident); ok {
+                if info, exists := importedPackages[pkgIdent.Name]; exists {
+                    info.used = true
+                    importedPackages[pkgIdent.Name] = info
+                }
+            }
+        }
+        return true
+    })
+
+    // Generate issues with positions
+    var issues []core.Issue
+    for pkg, info := range importedPackages {
+        if !info.used {
+            pos := goAST.Fset.Position(info.pos)
+            issues = append(issues, Issue{
+                RuleID:   r.ID(),
+                Message:  fmt.Sprintf("Unused import detected: %s", pkg),
+                Severity: r.Severity(),
+                Line:     pos.Line,
+                Column:   pos.Column,
+            })
+        }
+    }
+
+    return issues
+}
