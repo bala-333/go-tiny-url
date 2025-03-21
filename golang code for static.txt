@@ -1,4 +1,4 @@
-package main
+iipackage main
 
 import (
 	"go/ast"
@@ -1915,4 +1915,73 @@ func main() {
 	}
 
 	fmt.Println(string(jsonData))
+}
+package main
+
+import (
+	"encoding/json"
+	"fmt"
+	"os"
+)
+
+func main() {
+	// Read the file
+	filePath := "data.json"
+	fileData, err := os.ReadFile(filePath)
+	if err != nil {
+		panic(err)
+	}
+
+	// Unmarshal the file data into a map
+	var originalData map[string]interface{}
+	if err := json.Unmarshal(fileData, &originalData); err != nil {
+		panic(err)
+	}
+
+	// Example new interface data (can be modified or read from another source)
+	newData := map[string]interface{}{
+		"key1": "new value",
+		"key2": 42,
+		"nested": map[string]interface{}{
+			"nestedKey1": "new nested value",
+			"nestedKey2": nil,
+		},
+	}
+
+	// Merge the new data into the original, replacing nil values
+	mergeMaps(originalData, newData)
+
+	// Output the updated data
+	updatedData, err := json.MarshalIndent(originalData, "", "  ")
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println("Updated Data:")
+	fmt.Println(string(updatedData))
+}
+
+// mergeMaps recursively merges newData into original, replacing nil values in original with non-nil values from newData
+func mergeMaps(original, newData map[string]interface{}) {
+	for key, originalVal := range original {
+		newVal, exists := newData[key]
+		if !exists {
+			continue
+		}
+
+		if originalVal == nil {
+			if newVal != nil {
+				original[key] = newVal
+			}
+			continue
+		}
+
+		// Check if the original value is a nested map
+		originalMap, origIsMap := originalVal.(map[string]interface{})
+		if origIsMap {
+			newMap, newIsMap := newVal.(map[string]interface{})
+			if newIsMap {
+				mergeMaps(originalMap, newMap)
+			}
+		}
+	}
 }
