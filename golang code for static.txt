@@ -1985,3 +1985,62 @@ func mergeMaps(original, newData map[string]interface{}) {
 		}
 	}
 }
+func mergeMaps(original, newData map[string]interface{}) {
+	for key, originalVal := range original {
+		newVal, exists := newData[key]
+		if !exists {
+			continue
+		}
+
+		if originalVal == nil {
+			if newVal != nil {
+				original[key] = newVal
+			}
+			continue
+		}
+
+		// Handle nested maps
+		originalMap, origIsMap := originalVal.(map[string]interface{})
+		newMap, newIsMap := newVal.(map[string]interface{})
+		if origIsMap && newIsMap {
+			mergeMaps(originalMap, newMap)
+			continue
+		}
+
+		// Handle nested slices
+		originalSlice, origIsSlice := originalVal.([]interface{})
+		newSlice, newIsSlice := newVal.([]interface{})
+		if origIsSlice && newIsSlice {
+			mergeSlices(originalSlice, newSlice)
+			continue
+		}
+	}
+}
+
+func mergeSlices(original, newData []interface{}) {
+	for i := 0; i < len(original) && i < len(newData); i++ {
+		originalElem := original[i]
+		newElem := newData[i]
+
+		if originalElem == nil {
+			original[i] = newElem
+			continue
+		}
+
+		// Handle nested maps in slices
+		originalMap, origIsMap := originalElem.(map[string]interface{})
+		newMap, newIsMap := newElem.(map[string]interface{})
+		if origIsMap && newIsMap {
+			mergeMaps(originalMap, newMap)
+			continue
+		}
+
+		// Handle nested slices in slices
+		originalSlice, origIsSlice := originalElem.([]interface{})
+		newSlice, newIsSlice := newElem.([]interface{})
+		if origIsSlice && newIsSlice {
+			mergeSlices(originalSlice, newSlice)
+			continue
+		}
+	}
+}
