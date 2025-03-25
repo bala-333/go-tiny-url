@@ -2044,3 +2044,22 @@ func mergeSlices(original, newData []interface{}) {
 		}
 	}
 }
+
+func logRecursive(data interface{}, indentLevel int) {
+	indent := strings.Repeat("\t", indentLevel) // Visualize hierarchy with tabs
+
+	switch v := data.(type) {
+	case map[string]interface{}:
+		for key, value := range v {
+			log.Printf("%sKey: %s", indent, key)
+			logRecursive(value, indentLevel+1) // Recurse into nested maps
+		}
+	case []interface{}:
+		for i, item := range v {
+			log.Printf("%sIndex: %d", indent, i)
+			logRecursive(item, indentLevel+1) // Recurse into slice items
+		}
+	default:
+		log.Printf("%sValue: %v", indent, v) // Base case (primitives, strings, etc.)
+	}
+}
