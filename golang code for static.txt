@@ -2063,3 +2063,97 @@ func logRecursive(data interface{}, indentLevel int) {
 		log.Printf("%sValue: %v", indent, v) // Base case (primitives, strings, etc.)
 	}
 }
+
+// ConvertToMap recursively converts structs and nested structs into maps
+func ConvertToMap(input map[string]interface{}) map[string]interface{} {
+	result := make(map[string]interface{})
+	for key, value := range input {
+		result[key] = convertValue(value)
+	}
+	return result
+}
+
+// convertValue handles the recursive conversion of values
+func convertValue(value interface{}) interface{} {
+	v := reflect.ValueOf(value)
+
+	// Handle pointers by dereferencing them
+	if v.Kind() == reflect.Ptr {
+		if v.IsNil() {
+			return nil
+		}
+		v = v.Elem()
+	}
+
+	switch v.Kind() {
+	case reflect.Struct:
+		return structToMap(v.Interface())
+	case reflect.Map:
+		return convertMap(v)
+	case reflect.Slice, reflect.Array:
+		return convertSlice(v)
+	default:
+		return value
+	}
+}
+
+// structToMap converts a struct to map[string]interface{}
+func structToMap(obj interface{}) map[string]interface{} {
+	v := reflect.ValueOf(obj)
+	t := v.Type()
+
+	result := make(map[string]interface{})
+	for i := 0; i < v.NumField(); i++ {
+		field := t.Field(i)
+		
+		// Skip unexported fields
+		if field.PkgPath != "" {
+			continue
+		}
+
+		// Get field name from JSON tag if available
+		fieldName := getFieldName(field)
+		fieldValue := v.Field(i).Interface()
+
+		result[fieldName] = convertValue(fieldValue)
+	}
+	return result
+}
+
+// convertMap handles conversion of map types
+func convertMap(v reflect.Value) interface{} {
+	result := make(map[string]interface{})
+	for _, key := range v.MapKeys() {
+		if key.Kind() == reflect.String {
+			strKey := key.String()
+			mapValue := v.MapIndex(key).Interface()
+			result[strKey] = convertValue(mapValue)
+		}
+	}
+	return result
+}
+
+// convertSlice handles conversion of slice/array types
+func convertSlice(v reflect.Value) interface{} {
+	result := make([]interface{}, v.Len())
+	for i := 0; i < v.Len(); i++ {
+		result[i] = convertValue(v.Index(i).Interface())
+	}
+	return result
+}
+
+// getFieldName extracts JSON tag name or uses struct field name
+func getFieldName(field reflect.StructField) string {
+	tag := field.Tag.Get("json")
+	if tag == "" || tag == "-" {
+		return field.Name
+	}
+
+	// Remove comma options (e.g., "name,omitempty")
+	if commaIdx := strings.Index(tag, ","); commaIdx != -1 {
+		return tag[:commaIdx]
+	}
+	return tag
+}
+
+
