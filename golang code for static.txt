@@ -2350,3 +2350,26 @@ func (j *JavaLanguage) Parse(filePath string) (interface{}, error) {
 
 	return tree, nil
 }
+
+analyzer := core.NewAnalyzer()
+
+	// Register languages
+	analyzer.RegisterLanguage(&java.JavaLanguage{})
+	// analyzer.RegisterLanguage(&python.PythonLanguage{})
+
+	// Register ru
+
+	analyzer.RegisterRule(&java.UnusedImportsRule{})
+
+	// Process files
+	file := `C:\Users\Admin\Documents\projects\testdata\unusedimport.java`
+	issues, err := analyzer.ProcessFile(file)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// Print results as JSON
+	jsonOutput, _ := json.MarshalIndent(issues, "", "  ")
+	fmt.Println(string(jsonOutput))
+}
+
