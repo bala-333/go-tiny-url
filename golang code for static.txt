@@ -2157,3 +2157,162 @@ func getFieldName(field reflect.StructField) string {
 }
 
 
+package java
+
+import (
+	"fmt"
+	"myDemo/core"
+
+	sitter "github.com/smacker/go-tree-sitter"
+	"github.com/smacker/go-tree-sitter/java"
+)
+
+type SystemExitRule struct{}
+
+func (r *SystemExitRule) ID() string       { return "JAVA-001" }
+func (r *SystemExitRule) Severity() string { return "error" }
+
+func (r *SystemExitRule) Analyze(rawAST interface{}, _ core.Language) []core.Issue {
+	tree := rawAST.(*sitter.Tree)
+	root := tree.RootNode()
+
+	var issues []core.Issue
+	query := `(method_invocation
+                object: (identifier) @obj (#eq? @obj "System")
+                name: (identifier) @name (#eq? @name "exit")
+              )`
+
+	q, _ := sitter.NewQuery([]byte(query), java.GetLanguage())
+	defer q.Close()
+
+	cursor := sitter.NewQueryCursor()
+	defer cursor.Close()
+	cursor.Exec(q, root)
+
+	for {
+		match, ok := cursor.NextMatch()
+		if !ok {
+			break
+		}
+		for _, cap := range match.Captures {
+			pos := sitter.Point{
+				Row:    cap.Node.StartPoint().Row + 1, // 1-based line
+				Column: cap.Node.StartPoint().Column,
+			}
+			issues = append(issues, core.Issue{
+				RuleID:   r.ID(),
+				Message:  "Avoid System.exit() in application code",
+				Severity: r.Severity(),
+				Line:     int(pos.Row),
+				Column:   int(pos.Column),
+				FilePath: "", // Populate from context
+			})
+		}
+	}
+	return issues
+}
+
+type UnusedImportsRule struct{}
+
+func (r *UnusedImportsRule) ID() string       { return "JAVA-002" }
+func (r *UnusedImportsRule) Severity() string { return "warning" }
+
+func (r *UnusedImportsRule) Analyze(rawAST interface{}, source []byte, _ core.Language) []core.Issue {
+	tree := rawAST.(*sitter.Tree)
+	root := tree.RootNode()
+
+	var issues []core.Issue
+
+	// Capture explicit imports (excluding wildcards)
+	importQuery := `
+	(import_declaration 
+		(scoped_identifier 
+			(identifier)* 
+			(identifier) @class_name
+		)
+	) @import
+	`
+	qImports, _ := sitter.NewQuery([]byte(importQuery), java.GetLanguage())
+	defer qImports.Close()
+
+	cursorImports := sitter.NewQueryCursor()
+	defer cursorImports.Close()
+	cursorImports.Exec(qImports, root)
+
+	// Track imported class names and their nodes
+	imports := make(map[string][]*sitter.Node)
+	for {
+		match, ok := cursorImports.NextMatch()
+		if !ok {
+			break
+		}
+		var className string
+		var importNode *sitter.Node
+		for _, cap := range match.Captures {
+			name := qImports.CaptureNameForId(cap.Index)
+			switch name {
+			case "class_name":
+				start := cap.Node.StartByte()
+				end := cap.Node.EndByte()
+				className = string(source[start:end])
+			case "import":
+				importNode = cap.Node
+			}
+		}
+		if className != "" && importNode != nil {
+			imports[className] = append(imports[className], importNode)
+		}
+	}
+
+	// Capture all used identifiers (excluding imports)
+	usedIdentQuery := `
+	(identifier) @ident
+	(#not-parent? @ident import_declaration)
+	`
+	qUsedIdents, _ := sitter.NewQuery([]byte(usedIdentQuery), java.GetLanguage())
+	defer qUsedIdents.Close()
+
+	cursorUsedIdents := sitter.NewQueryCursor()
+	defer cursorUsedIdents.Close()
+	cursorUsedIdents.Exec(qUsedIdents, root)
+
+	// Track used identifiers
+	usedIdents := make(map[string]bool)
+	for {
+		match, ok := cursorUsedIdents.NextMatch()
+		if !ok {
+			break
+		}
+		for _, cap := range match.Captures {
+			name := qImports.CaptureNameForId(cap.Index)
+			if name == "ident" {
+				start := cap.Node.StartByte()
+				end := cap.Node.EndByte()
+				identName := string(source[start:end])
+				usedIdents[identName] = true
+			}
+		}
+	}
+
+	// Report unused imports
+	for className, nodes := range imports {
+		if !usedIdents[className] {
+			for _, node := range nodes {
+				pos := sitter.Point{
+					Row:    node.StartPoint().Row + 1,
+					Column: node.StartPoint().Column,
+				}
+				issues = append(issues, core.Issue{
+					RuleID:   r.ID(),
+					Message:  fmt.Sprintf("Unused import: %s", className),
+					Severity: r.Severity(),
+					Line:     int(pos.Row),
+					Column:   int(pos.Column),
+					FilePath: "", // Populate from context
+				})
+			}
+		}
+	}
+
+	return issues
+}
