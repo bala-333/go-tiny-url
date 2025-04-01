@@ -2316,3 +2316,37 @@ func (r *UnusedImportsRule) Analyze(rawAST interface{}, source []byte, _ core.La
 
 	return issues
 }
+
+
+package java
+
+import (
+	"context"
+	"os"
+
+	sitter "github.com/smacker/go-tree-sitter"
+	"github.com/smacker/go-tree-sitter/java"
+)
+
+type JavaLanguage struct{}
+
+func (j *JavaLanguage) Name() string                  { return "java" }
+func (j *JavaLanguage) SupportedExtensions() []string { return []string{".java"} }
+
+func (j *JavaLanguage) Parse(filePath string) (interface{}, error) {
+	// Read file content
+	code, err := os.ReadFile(filePath)
+	if err != nil {
+		return nil, err
+	}
+
+	// Configure Tree-sitter
+	parser := sitter.NewParser()
+	parser.SetLanguage(java.GetLanguage())
+	tree, err := parser.ParseCtx(context.Background(), nil, code)
+	if err != nil {
+		return nil, err
+	}
+
+	return tree, nil
+}
